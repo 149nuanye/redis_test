@@ -59,6 +59,18 @@ unsigned int dictEncObjHash(const void *key) {
     }
 }
 
+int dictSdsKeyCompare(void *privdata, const void *key1,
+    const void *key2)
+{
+    int l1,l2;
+    DICT_NOTUSED(privdata);
+
+    l1 = sdslen((sds)key1);
+    l2 = sdslen((sds)key2);
+    if (l1 != l2) return 0;
+    return memcmp(key1, key2, l1) == 0;
+}
+
 int dictEncObjKeyCompare(void *privdata, const void *key1,
     const void *key2)
 {
@@ -91,7 +103,7 @@ dictType setDictType = {
     NULL,                      /* key dup */
     NULL,                      /* val dup */
     dictEncObjKeyCompare,      /* key compare */
-    dictObjectDestructor, /* key destructor */
+    dictObjectDestructor,       /* key destructor */
     NULL                       /* val destructor */
 };
 
@@ -149,7 +161,7 @@ dictType setDictType = {
  */
 struct redisCommand redisCommandTable[] = {
     {"get",getCommand,2,"rF",0,NULL,1,1,1,0,0},
-    // {"set",setCommand,-3,"wm",0,NULL,1,1,1,0,0},
+    {"set",setCommand,-3,"wm",0,NULL,1,1,1,0,0},
     // {"setnx",setnxCommand,3,"wmF",0,NULL,1,1,1,0,0},
     // {"setex",setexCommand,4,"wm",0,NULL,1,1,1,0,0},
     // {"psetex",psetexCommand,4,"wm",0,NULL,1,1,1,0,0},
@@ -328,18 +340,6 @@ struct redisCommand redisCommandTable[] = {
 
 unsigned int dictSdsHash(const void *key) {
     return dictGenHashFunction((unsigned char*)key, sdslen((char*)key));
-}
-
-int dictSdsKeyCompare(void *privdata, const void *key1,
-    const void *key2)
-{
-    int l1,l2;
-    DICT_NOTUSED(privdata);
-
-    l1 = sdslen((sds)key1);
-    l2 = sdslen((sds)key2);
-    if (l1 != l2) return 0;
-    return memcmp(key1, key2, l1) == 0;
 }
 
 void dictSdsDestructor(void *privdata, void *val)
@@ -884,21 +884,21 @@ void serverLog(int level, const char *fmt, ...) {
  * The parameter 'now' is the current time in milliseconds as is passed
  * to the function to avoid too many gettimeofday() syscalls. */
 int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
-    // long long t = dictGetSignedIntegerVal(de);
-    // if (now > t) {
-    //     sds key = dictGetKey(de);
-    //     robj *keyobj = createStringObject(key,sdslen(key));
+    long long t = dictGetSignedIntegerVal(de);
+    if (now > t) {
+        sds key = dictGetKey(de);
+        robj *keyobj = createStringObject(key,sdslen(key));
 
-    //     propagateExpire(db,keyobj);
-    //     dbDelete(db,keyobj);
-    //     notifyKeyspaceEvent(NOTIFY_EXPIRED,
-    //         "expired",keyobj,db->id);
-    //     decrRefCount(keyobj);
-    //     server.stat_expiredkeys++;
-    //     return 1;
-    // } else {
-    //     return 0;
-    // }
+        propagateExpire(db,keyobj);
+        dbDelete(db,keyobj);
+        notifyKeyspaceEvent(NOTIFY_EXPIRED,
+            "expired",keyobj,db->id);
+        decrRefCount(keyobj);
+        server.stat_expiredkeys++;
+        return 1;
+    } else {
+        return 0;
+    }
 }
 
 void activeExpireCycle(int type) {
@@ -1125,8 +1125,18 @@ dictType keylistDictType = {
     NULL,                       /* key dup */
     NULL,                       /* val dup */
     dictObjKeyCompare,          /* key compare */
-    dictObjectDestructor,  /* key destructor */
+    dictObjectDestructor,       /* key destructor */
     dictListDestructor          /* val destructor */
+};
+
+/* Sorted sets hash (note: a skiplist is used in addition to the hash table) */
+dictType zsetDictType = {
+    dictEncObjHash,            /* hash function */
+    NULL,                      /* key dup */
+    NULL,                      /* val dup */
+    dictEncObjKeyCompare,      /* key compare */
+    dictObjectDestructor, /* key destructor */
+    NULL                       /* val destructor */
 };
 
 /* Create a new eviction pool. */
@@ -1180,12 +1190,12 @@ int listenToPort(int port, int *fds, int *count) {
                 unsupported++;
                 serverLog(LL_WARNING,"Not listening to IPv6: unsupproted");
             }
-
             if (*count == 1 || unsupported) {
                 /* Bind the IPv4 address as well. */
                 fds[*count] = anetTcpServer(server.neterr,port,NULL,
                     server.tcp_backlog);
                 if (fds[*count] != ANET_ERR) {
+                    serverLog(LL_WARNING,"listening to IPv4: supproted");
                     anetNonBlock(NULL,fds[*count]);
                     (*count)++;
                 } else if (errno == EAFNOSUPPORT) {
@@ -1196,14 +1206,16 @@ int listenToPort(int port, int *fds, int *count) {
             /* Exit the loop if we were able to bind * on IPv4 and IPv6,
              * otherwise fds[*count] will be ANET_ERR and we'll print an
              * error and return to the caller with an error. */
-            if (*count + unsupported == 2) break;
+            if (*count + unsupported == 2) 
+            {   
+                break;
+            }
         } else if (strchr(server.bindaddr[j],':')) {
             /* Bind IPv6 address. */
             fds[*count] = anetTcp6Server(server.neterr,port,server.bindaddr[j],
                 server.tcp_backlog);
         } else {
             /* Bind IPv4 address. */
-            printf("anetTcpServer add:\n");
             fds[*count] = anetTcpServer(server.neterr,port,server.bindaddr[j],
                 server.tcp_backlog);
         }
@@ -1240,7 +1252,7 @@ void setupSignalHandlers(void) {
 //     sigaction(SIGFPE, &act, NULL);
 //     sigaction(SIGILL, &act, NULL);
 // #endif
-//     return;
+    return;
 }
 
 void createSharedObjects(void) {
@@ -1369,6 +1381,7 @@ void initServer(void) {
         listenToPort(server.port,server.ipfd,&server.ipfd_count) == C_ERR)
         exit(1);
 
+    serverLog(LL_WARNING, "initServer func server.ipfd_count:%d.",server.ipfd_count);
     /* Open the listening Unix domain socket. */
     if (server.unixsocket != NULL) {
         unlink(server.unixsocket); /* don't care if this fails */
@@ -1475,12 +1488,12 @@ void initServer(void) {
 }
 
 void redisOutOfMemoryHandler(size_t allocation_size) {
-    serverLog(LL_WARNING,"Out Of Memory allocating %zu bytes!",
-        allocation_size);
+    serverLog(LL_WARNING,"Out Of Memory allocating %zu bytes!",allocation_size);
     serverPanic("Redis aborting for OUT OF MEMORY");
 }
 
 void createPidFile(void) {
+    printf("createPidFile func \n");
     /* If pidfile requested, but no pidfile defined, use
      * default pidfile path */
     if (!server.pidfile) server.pidfile = zstrdup(CONFIG_DEFAULT_PID_FILE);
@@ -1572,6 +1585,97 @@ void authCommand(client *c) {
     }
 }
 
+/* Helper function for addReplyCommand() to output flags. */
+int addReplyCommandFlag(client *c, struct redisCommand *cmd, int f, char *reply) {
+    if (cmd->flags & f) {
+        addReplyStatus(c, reply);
+        return 1;
+    }
+    return 0;
+}
+
+/* Output the representation of a Redis command. Used by the COMMAND command. */
+void addReplyCommand(client *c, struct redisCommand *cmd) {
+    if (!cmd) {
+        addReply(c, shared.nullbulk);
+    } else {
+        printf("addReplyCommand func,cmd->name:%s\n",cmd->name);
+        /* We are adding: command name, arg count, flags, first, last, offset */
+        addReplyMultiBulkLen(c, 6);
+        addReplyBulkCString(c, cmd->name);
+        addReplyLongLong(c, cmd->arity);
+
+        int flagcount = 0;
+        void *flaglen = addDeferredMultiBulkLength(c);
+        flagcount += addReplyCommandFlag(c,cmd,CMD_WRITE, "write");
+        flagcount += addReplyCommandFlag(c,cmd,CMD_READONLY, "readonly");
+        flagcount += addReplyCommandFlag(c,cmd,CMD_DENYOOM, "denyoom");
+        flagcount += addReplyCommandFlag(c,cmd,CMD_ADMIN, "admin");
+        flagcount += addReplyCommandFlag(c,cmd,CMD_PUBSUB, "pubsub");
+        flagcount += addReplyCommandFlag(c,cmd,CMD_NOSCRIPT, "noscript");
+        flagcount += addReplyCommandFlag(c,cmd,CMD_RANDOM, "random");
+        flagcount += addReplyCommandFlag(c,cmd,CMD_SORT_FOR_SCRIPT,"sort_for_script");
+        flagcount += addReplyCommandFlag(c,cmd,CMD_LOADING, "loading");
+        flagcount += addReplyCommandFlag(c,cmd,CMD_STALE, "stale");
+        flagcount += addReplyCommandFlag(c,cmd,CMD_SKIP_MONITOR, "skip_monitor");
+        flagcount += addReplyCommandFlag(c,cmd,CMD_ASKING, "asking");
+        flagcount += addReplyCommandFlag(c,cmd,CMD_FAST, "fast");
+        if (cmd->getkeys_proc) {
+            addReplyStatus(c, "movablekeys");
+            flagcount += 1;
+        }
+        setDeferredMultiBulkLength(c, flaglen, flagcount);
+
+        addReplyLongLong(c, cmd->firstkey);
+        addReplyLongLong(c, cmd->lastkey);
+        addReplyLongLong(c, cmd->keystep);
+    }
+}
+
+/* COMMAND <subcommand> <args> */
+void commandCommand(client *c) {
+    dictIterator *di;
+    dictEntry *de;
+
+    if (c->argc == 1) {
+        addReplyMultiBulkLen(c, dictSize(server.commands));
+        di = dictGetIterator(server.commands);
+        while ((de = dictNext(di)) != NULL) {
+            addReplyCommand(c, dictGetVal(de));
+        }
+        dictReleaseIterator(di);
+    } else if (!strcasecmp(c->argv[1]->ptr, "info")) {
+        int i;
+        addReplyMultiBulkLen(c, c->argc-2);
+        for (i = 2; i < c->argc; i++) {
+            addReplyCommand(c, dictFetchValue(server.commands, c->argv[i]->ptr));
+        }
+    } else if (!strcasecmp(c->argv[1]->ptr, "count") && c->argc == 2) {
+        addReplyLongLong(c, dictSize(server.commands));
+    } else if (!strcasecmp(c->argv[1]->ptr,"getkeys") && c->argc >= 3) {
+        struct redisCommand *cmd = lookupCommand(c->argv[2]->ptr);
+        int *keys, numkeys, j;
+
+        if (!cmd) {
+            addReplyErrorFormat(c,"Invalid command specified");
+            return;
+        } else if ((cmd->arity > 0 && cmd->arity != c->argc-2) ||
+                   ((c->argc-2) < -cmd->arity))
+        {
+            addReplyError(c,"Invalid number of arguments specified for command");
+            return;
+        }
+
+        keys = getKeysFromCommand(cmd,c->argv+2,c->argc-2,&numkeys);
+        addReplyMultiBulkLen(c,numkeys);
+        for (j = 0; j < numkeys; j++) addReplyBulk(c,c->argv[keys[j]+2]);
+        getKeysFreeResult(keys);
+    } else {
+        addReplyError(c, "Unknown subcommand or wrong number of arguments.");
+        return;
+    }
+}
+
 void redisOpArrayInit(redisOpArray *oa) {
     oa->ops = NULL;
     oa->numops = 0;
@@ -1659,6 +1763,7 @@ void call(client *c, int flags) {
     //     !server.loading &&
     //     !(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN)))
     // {
+    //     printf("call func replicationFeedMonitors\n");
     //     replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
     // }
 
@@ -1776,15 +1881,12 @@ int processCommand(client *c) {
      * go through checking for replication and QUIT will cause trouble
      * when FORCE_REPLICATION is enabled and would be implemented in
      * a regular command proc. */
-    printf("processCommand \n");
+    
     if (!strcasecmp(c->argv[0]->ptr,"quit")) {
-        printf("processCommand quit\n");
         addReply(c,shared.ok);
-        printf("processCommand quit end\n");
         c->flags |= CLIENT_CLOSE_AFTER_REPLY;
         return C_ERR;
     }
-
     /* Now lookup the command and check ASAP about trivial error conditions
      * such as wrong arity, bad command name and so forth. */
     c->cmd = c->lastcmd = lookupCommand(c->argv[0]->ptr);
@@ -1809,52 +1911,6 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* If cluster is enabled perform the cluster redirection here.
-     * However we don't perform the redirection if:
-     * 1) The sender of this command is our master.
-     * 2) The command has no key arguments. */
-    // if (server.cluster_enabled &&
-    //     !(c->flags & CLIENT_MASTER) &&
-    //     !(c->flags & CLIENT_LUA &&
-    //       server.lua_caller->flags & CLIENT_MASTER) &&
-    //     !(c->cmd->getkeys_proc == NULL && c->cmd->firstkey == 0 &&
-    //       c->cmd->proc != execCommand))
-    // {
-    //     int hashslot;
-    //     int error_code;
-    //     clusterNode *n = getNodeByQuery(c,c->cmd,c->argv,c->argc,
-    //                                     &hashslot,&error_code);
-    //     if (n == NULL || n != server.cluster->myself) {
-    //         if (c->cmd->proc == execCommand) {
-    //             discardTransaction(c);
-    //         } else {
-    //             flagTransaction(c);
-    //         }
-    //         clusterRedirectClient(c,n,hashslot,error_code);
-    //         return C_OK;
-    //     }
-    // }
-
-    // /* Handle the maxmemory directive.
-    //  *
-    //  * First we try to free some memory if possible (if there are volatile
-    //  * keys in the dataset). If there are not the only thing we can do
-    //  * is returning an error. */
-    // if (server.maxmemory) {
-    //     int retval = freeMemoryIfNeeded();
-    //     /* freeMemoryIfNeeded may flush slave output buffers. This may result
-    //      * into a slave, that may be the active client, to be freed. */
-    //     if (server.current_client == NULL) return C_ERR;
-
-    //     /* It was impossible to free enough memory, and the command the client
-    //      * is trying to execute is denied during OOM conditions? Error. */
-    //     if ((c->cmd->flags & CMD_DENYOOM) && retval == C_ERR) {
-    //         flagTransaction(c);
-    //         addReply(c, shared.oomerr);
-    //         return C_OK;
-    //     }
-    // }
-
     /* Don't accept write commands if there are problems persisting on disk
      * and if this is a master instance. */
     if (((server.stop_writes_on_bgsave_err &&
@@ -1876,73 +1932,12 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    // /* Don't accept write commands if there are not enough good slaves and
-    //  * user configured the min-slaves-to-write option. */
-    // if (server.masterhost == NULL &&
-    //     server.repl_min_slaves_to_write &&
-    //     server.repl_min_slaves_max_lag &&
-    //     c->cmd->flags & CMD_WRITE &&
-    //     server.repl_good_slaves_count < server.repl_min_slaves_to_write)
-    // {
-    //     flagTransaction(c);
-    //     addReply(c, shared.noreplicaserr);
-    //     return C_OK;
-    // }
-
-    // /* Don't accept write commands if this is a read only slave. But
-    //  * accept write commands if this is our master. */
-    // if (server.masterhost && server.repl_slave_ro &&
-    //     !(c->flags & CLIENT_MASTER) &&
-    //     c->cmd->flags & CMD_WRITE)
-    // {
-    //     addReply(c, shared.roslaveerr);
-    //     return C_OK;
-    // }
-
-    // /* Only allow SUBSCRIBE and UNSUBSCRIBE in the context of Pub/Sub */
-    // if (c->flags & CLIENT_PUBSUB &&
-    //     c->cmd->proc != pingCommand &&
-    //     c->cmd->proc != subscribeCommand &&
-    //     c->cmd->proc != unsubscribeCommand &&
-    //     c->cmd->proc != psubscribeCommand &&
-    //     c->cmd->proc != punsubscribeCommand) {
-    //     addReplyError(c,"only (P)SUBSCRIBE / (P)UNSUBSCRIBE / PING / QUIT allowed in this context");
-    //     return C_OK;
-    // }
-
-    // /* Only allow INFO and SLAVEOF when slave-serve-stale-data is no and
-    //  * we are a slave with a broken link with master. */
-    // if (server.masterhost && server.repl_state != REPL_STATE_CONNECTED &&
-    //     server.repl_serve_stale_data == 0 &&
-    //     !(c->cmd->flags & CMD_STALE))
-    // {
-    //     flagTransaction(c);
-    //     addReply(c, shared.masterdownerr);
-    //     return C_OK;
-    // }
-
     /* Loading DB? Return an error if the command has not the
      * CMD_LOADING flag. */
     if (server.loading && !(c->cmd->flags & CMD_LOADING)) {
         addReply(c, shared.loadingerr);
         return C_OK;
     }
-
-    // /* Lua script too slow? Only allow a limited number of commands. */
-    // if (server.lua_timedout &&
-    //       c->cmd->proc != authCommand &&
-    //       c->cmd->proc != replconfCommand &&
-    //     !(c->cmd->proc == shutdownCommand &&
-    //       c->argc == 2 &&
-    //       tolower(((char*)c->argv[1]->ptr)[0]) == 'n') &&
-    //     !(c->cmd->proc == scriptCommand &&
-    //       c->argc == 2 &&
-    //       tolower(((char*)c->argv[1]->ptr)[0]) == 'k'))
-    // {
-    //     flagTransaction(c);
-    //     addReply(c, shared.slowscripterr);
-    //     return C_OK;
-    // }
 
     /* Exec the command */
     if (c->flags & CLIENT_MULTI &&
@@ -2030,29 +2025,121 @@ struct redisServer server;
 int main(int argc, char **argv) {
     struct timeval tv;
     int j;
+    /* We need to initialize our libraries, and the server configuration. */
+#ifdef INIT_SETPROCTITLE_REPLACEMENT
+    // spt_init(argc, argv);
+#endif
+    // 设置本地化信息
     setlocale(LC_COLLATE,"");
     zmalloc_enable_thread_safeness();
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
     srand(time(NULL)^getpid());
     gettimeofday(&tv,NULL);
     dictSetHashFunctionSeed(tv.tv_sec^tv.tv_usec^getpid());
+    
     // server.sentinel_mode = checkForSentinelMode(argc,argv);
+    
     initServerConfig();
-     /* Store the executable path and arguments in a safe place in order
+
+    /* Store the executable path and arguments in a safe place in order
      * to be able to restart the server later. */
     server.executable = getAbsolutePath(argv[0]);
     server.exec_argv = zmalloc(sizeof(char*)*(argc+1));
     server.exec_argv[argc] = NULL;
     for (j = 0; j < argc; j++) server.exec_argv[j] = zstrdup(argv[j]);
 
+    /* We need to init sentinel right now as parsing the configuration file
+     * in sentinel mode will have the effect of populating the sentinel
+     * data structures with master nodes to monitor. */
+    // if (server.sentinel_mode) {
+    //     initSentinelConfig();
+    //     initSentinel();
+    // }
+
+    /* Check if we need to start in redis-check-rdb mode. We just execute
+     * the program main. However the program is part of the Redis executable
+     * so that we can easily execute an RDB check on loading errors. */
+    // if (strstr(argv[0],"redis-check-rdb") != NULL)
+    //     redis_check_rdb_main(argc,argv);
+
+    if (argc >= 2) {
+        // j = 1; /* First option to parse in argv[] */
+        // sds options = sdsempty();
+        // char *configfile = NULL;
+
+        // /* Handle special options --help and --version */
+        // if (strcmp(argv[1], "-v") == 0 ||
+        //     strcmp(argv[1], "--version") == 0) version();
+        // if (strcmp(argv[1], "--help") == 0 ||
+        //     strcmp(argv[1], "-h") == 0) usage();
+        // if (strcmp(argv[1], "--test-memory") == 0) {
+        //     if (argc == 3) {
+        //         memtest(atoi(argv[2]),50);
+        //         exit(0);
+        //     } else {
+        //         fprintf(stderr,"Please specify the amount of memory to test in megabytes.\n");
+        //         fprintf(stderr,"Example: ./redis-server --test-memory 4096\n\n");
+        //         exit(1);
+        //     }
+        // }
+
+        // /* First argument is the config file name? */
+        // if (argv[j][0] != '-' || argv[j][1] != '-') {
+        //     configfile = argv[j];
+        //     server.configfile = getAbsolutePath(configfile);
+        //     /* Replace the config file in server.exec_argv with
+        //      * its absoulte path. */
+        //     zfree(server.exec_argv[j]);
+        //     server.exec_argv[j] = zstrdup(server.configfile);
+        //     j++;
+        // }
+
+        // /* All the other options are parsed and conceptually appended to the
+        //  * configuration file. For instance --port 6380 will generate the
+        //  * string "port 6380\n" to be parsed after the actual file name
+        //  * is parsed, if any. */
+        // while(j != argc) {
+        //     if (argv[j][0] == '-' && argv[j][1] == '-') {
+        //         /* Option name */
+        //         if (!strcmp(argv[j], "--check-rdb")) {
+        //             /* Argument has no options, need to skip for parsing. */
+        //             j++;
+        //             continue;
+        //         }
+        //         if (sdslen(options)) options = sdscat(options,"\n");
+        //         options = sdscat(options,argv[j]+2);
+        //         options = sdscat(options," ");
+        //     } else {
+        //         /* Option argument */
+        //         options = sdscatrepr(options,argv[j],strlen(argv[j]));
+        //         options = sdscat(options," ");
+        //     }
+        //     j++;
+        // }
+        // if (server.sentinel_mode && configfile && *configfile == '-') {
+        //     serverLog(LL_WARNING,
+        //         "Sentinel config from STDIN not allowed.");
+        //     serverLog(LL_WARNING,
+        //         "Sentinel needs config file on disk to save state.  Exiting...");
+        //     exit(1);
+        // }
+        // resetServerSaveParams();
+        // loadServerConfig(configfile,options);
+        // sdsfree(options);
+    } else {
+        serverLog(LL_WARNING, "Warning: no config file specified, using the default config. In order to specify a config file use %s /path/to/%s.conf", argv[0], server.sentinel_mode ? "sentinel" : "redis");
+    }
+
     server.supervised = redisIsSupervised(server.supervised_mode);
     int background = server.daemonize && !server.supervised;
-    if (background) daemonize();    
+    if (background) daemonize();
+
     initServer();
     if (background || server.pidfile) createPidFile();
     redisSetProcTitle(argv[0]);
-    // redisAsciiArt();
-    checkTcpBacklogSettings();    
+    redisAsciiArt();
+    checkTcpBacklogSettings();
+
     // if (!server.sentinel_mode) {
     //     /* Things not needed when running in Sentinel mode. */
     //     serverLog(LL_WARNING,"Server started, Redis version " REDIS_VERSION);
@@ -2076,10 +2163,11 @@ int main(int argc, char **argv) {
     //     sentinelIsRunning();
     // }
 
-     /* Warning the user about suspicious maxmemory setting. */
-     if (server.maxmemory > 0 && server.maxmemory < 1024*1024) {
+    /* Warning the user about suspicious maxmemory setting. */
+    if (server.maxmemory > 0 && server.maxmemory < 1024*1024) {
         serverLog(LL_WARNING,"WARNING: You specified a maxmemory value that is less than 1MB (current value is %llu bytes). Are you sure this is what you really want?", server.maxmemory);
     }
+
     aeSetBeforeSleepProc(server.el,beforeSleep);
     aeMain(server.el);
     aeDeleteEventLoop(server.el);

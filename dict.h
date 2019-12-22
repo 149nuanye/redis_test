@@ -45,6 +45,7 @@ typedef struct dict {
     int iterators;  /* number of iterators currently running */
 } dict;
 
+
 /* If safe is set to 1 this is a safe iterator, that means, you can call
  * dictAdd, dictFind, and other functions against the dictionary even while
  * iterating. Otherwise it is a non safe iterator, and only dictNext()
@@ -94,7 +95,6 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
     else \
         entry->key = (_key_); \
 } while(0)
-
 #define dictCompareKeys(d, key1, key2) \
     (((d)->type->keyCompare) ? \
         (d)->type->keyCompare((d)->privdata, key1, key2) : \
@@ -123,10 +123,12 @@ void dictRelease(dict *d);
 dictEntry * dictFind(dict *d, const void *key);
 void *dictFetchValue(dict *d, const void *key);
 int dictResize(dict *d);
+
 dictIterator *dictGetIterator(dict *d);
 dictIterator *dictGetSafeIterator(dict *d);
 dictEntry *dictNext(dictIterator *iter);
 void dictReleaseIterator(dictIterator *iter);
+
 dictEntry *dictGetRandomKey(dict *d);
 unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count);
 void dictGetStats(char *buf, size_t bufsize, dict *d);
@@ -135,6 +137,7 @@ unsigned int dictGenCaseHashFunction(const unsigned char *buf, int len);
 void dictEmpty(dict *d, void(callback)(void*));
 void dictEnableResize(void);
 void dictDisableResize(void);
+
 int dictRehash(dict *d, int n);
 int dictRehashMilliseconds(dict *d, int ms);
 void dictSetHashFunctionSeed(unsigned int initval);

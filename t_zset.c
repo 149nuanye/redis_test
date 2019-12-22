@@ -59,7 +59,7 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj) {
     unsigned int rank[ZSKIPLIST_MAXLEVEL];
     int i, level;
 
-    serverAssert(!isnan(score));
+    // serverAssert(!isnan(score));
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
         /* store rank that is crossed to reach the insert position */
@@ -201,7 +201,7 @@ zskiplistNode *zslFirstInRange(zskiplist *zsl, zrangespec *range) {
 
     /* This is an inner range, so the next node cannot be NULL. */
     x = x->level[0].forward;
-    serverAssert(x != NULL);
+    // serverAssert(x != NULL);
 
     /* Check if score <= max. */
     if (!zslValueLteMax(x->score,range)) return NULL;
@@ -226,108 +226,11 @@ zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec *range) {
     }
 
     /* This is an inner range, so this node cannot be NULL. */
-    serverAssert(x != NULL);
+    // serverAssert(x != NULL);
 
     /* Check if score >= min. */
     if (!zslValueGteMin(x->score,range)) return NULL;
     return x;
-}
-
-void freeHashObject(robj *o) {
-    switch (o->encoding) {
-    case OBJ_ENCODING_HT:
-        dictRelease((dict*) o->ptr);
-        break;
-    case OBJ_ENCODING_ZIPLIST:
-        zfree(o->ptr);
-        break;
-    default:
-        serverPanic("Unknown hash encoding type");
-        break;
-    }
-}
-
-void freeListObject(robj *o) {
-    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-        quicklistRelease(o->ptr);
-    } else {
-        serverPanic("Unknown list encoding type");
-    }
-}
-
-void freeSetObject(robj *o) {
-    switch (o->encoding) {
-    case OBJ_ENCODING_HT:
-        dictRelease((dict*) o->ptr);
-        break;
-    case OBJ_ENCODING_INTSET:
-        zfree(o->ptr);
-        break;
-    default:
-        serverPanic("Unknown set encoding type");
-    }
-}
-
-void freeStringObject(robj *o) {
-    if (o->encoding == OBJ_ENCODING_RAW) {
-        sdsfree(o->ptr);
-    }
-}
-
-
-/* Free entire quicklist. */
-void quicklistRelease(quicklist *quicklist) {
-    unsigned long len;
-    quicklistNode *current, *next;
-
-    current = quicklist->head;
-    len = quicklist->len;
-    while (len--) {
-        next = current->next;
-
-        zfree(current->zl);
-        quicklist->count -= current->count;
-
-        zfree(current);
-
-        quicklist->len--;
-        current = next;
-    }
-    zfree(quicklist);
-}
-
-void freeZsetObject(robj *o) {
-    zset *zs;
-    switch (o->encoding) {
-    case OBJ_ENCODING_SKIPLIST:
-        zs = o->ptr;
-        dictRelease(zs->dict);
-        zslFree(zs->zsl);
-        zfree(zs);
-        break;
-    case OBJ_ENCODING_ZIPLIST:
-        zfree(o->ptr);
-        break;
-    default:
-        serverPanic("Unknown sorted set encoding");
-    }
-}
-
-void decrRefCount(robj *o) {
-    if (o->refcount <= 0) serverPanic("decrRefCount against refcount <= 0");
-    if (o->refcount == 1) {
-        switch(o->type) {
-        case OBJ_STRING: freeStringObject(o); break;
-        case OBJ_LIST: freeListObject(o); break;
-        case OBJ_SET: freeSetObject(o); break;
-        case OBJ_ZSET: freeZsetObject(o); break;
-        case OBJ_HASH: freeHashObject(o); break;
-        default: serverPanic("Unknown object type"); break;
-        }
-        zfree(o);
-    } else {
-        o->refcount--;
-    }
 }
 
 unsigned int zzlLength(unsigned char *zl) {
@@ -341,7 +244,7 @@ unsigned int zsetLength(robj *zobj) {
     } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
         length = ((zset*)zobj->ptr)->zsl->length;
     } else {
-        serverPanic("Unknown sorted set encoding");
+        // serverPanic("Unknown sorted set encoding");
     }
     return length;
 }

@@ -162,7 +162,7 @@ static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) 
     when_sec = cur_sec + milliseconds/1000;
     when_ms = cur_ms + milliseconds%1000;
     if (when_ms >= 1000) {
-        when_sec ++;
+        when_sec++;
         when_ms -= 1000;
     }
     *sec = when_sec;
@@ -318,6 +318,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
 int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 {
     int processed = 0, numevents;
+
     /* Nothing to do? return ASAP */
     if (!(flags & AE_TIME_EVENTS) && !(flags & AE_FILE_EVENTS)) return 0;
 
@@ -371,7 +372,8 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             int mask = eventLoop->fired[j].mask;
             int fd = eventLoop->fired[j].fd;
             int rfired = 0;
-	        /* note the fe->mask & mask & ... code: maybe an already processed
+
+	    /* note the fe->mask & mask & ... code: maybe an already processed
              * event removed an element that fired and we still didn't
              * processed, so we check if the event is still valid. */
             if (fe->mask & mask & AE_READABLE) {

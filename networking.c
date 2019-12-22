@@ -164,17 +164,17 @@ int prepareClientToWrite(client *c) {
 /* Create a duplicate of the last object in the reply list when
  * it is not exclusively owned by the reply list. */
 robj *dupLastObjectIfNeeded(list *reply) {
-    // robj *new, *cur;
-    // listNode *ln;
-    // serverAssert(listLength(reply) > 0);
-    // ln = listLast(reply);
-    // cur = listNodeValue(ln);
-    // if (cur->refcount > 1) {
-    //     new = dupStringObject(cur);
-    //     decrRefCount(cur);
-    //     listNodeValue(ln) = new;
-    // }
-    // return listNodeValue(ln);
+    robj *new, *cur;
+    listNode *ln;
+    serverAssert(listLength(reply) > 0);
+    ln = listLast(reply);
+    cur = listNodeValue(ln);
+    if (cur->refcount > 1) {
+        new = dupStringObject(cur);
+        decrRefCount(cur);
+        listNodeValue(ln) = new;
+    }
+    return listNodeValue(ln);
 }
 
 /* -----------------------------------------------------------------------------
@@ -183,7 +183,6 @@ robj *dupLastObjectIfNeeded(list *reply) {
 
 int _addReplyToBuffer(client *c, const char *s, size_t len) {
     size_t available = sizeof(c->buf)-c->bufpos;
-
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return C_OK;
 
     /* If there already are entries in the reply list, we cannot
@@ -195,7 +194,6 @@ int _addReplyToBuffer(client *c, const char *s, size_t len) {
 
     memcpy(c->buf+c->bufpos,s,len);
     c->bufpos+=len;
-    printf("_addReplyToBuffer func end\n");
     return C_OK;
 }
 
@@ -217,6 +215,7 @@ void _addReplyObjectToList(client *c, robj *o) {
             sdslen(tail->ptr)+sdslen(o->ptr) <= PROTO_REPLY_CHUNK_BYTES)
         {
             c->reply_bytes -= sdsZmallocSize(tail->ptr);
+
             tail = dupLastObjectIfNeeded(c->reply);
             tail->ptr = sdscatlen(tail->ptr,o->ptr,sdslen(o->ptr));
             c->reply_bytes += sdsZmallocSize(tail->ptr);
@@ -299,8 +298,11 @@ void _addReplyStringToList(client *c, const char *s, size_t len) {
  * -------------------------------------------------------------------------- */
 
 void addReply(client *c, robj *obj) {
-    if (prepareClientToWrite(c) != C_OK) return;
-    printf("addReply func\n");
+    if (prepareClientToWrite(c) != C_OK) 
+    {
+        return;
+    }
+    
     /* This is an important place where we can avoid copy-on-write
      * when there is a saving child running, avoiding touching the
      * refcount field of the object if it's not needed.
@@ -308,15 +310,13 @@ void addReply(client *c, robj *obj) {
      * If the encoding is RAW and there is room in the static buffer
      * we'll be able to send the object to the client without
      * messing with its page. */
-    if (obj == NULL){
-        printf("Hello world\n");
-    }
     if (sdsEncodedObject(obj)) {
-        printf("addReply func if,value:%s\n",obj->ptr);
         if (_addReplyToBuffer(c,obj->ptr,sdslen(obj->ptr)) != C_OK)
+        {
             _addReplyObjectToList(c,obj);
+        }
+            
     } else if (obj->encoding == OBJ_ENCODING_INT) {
-        printf("addReply func else if\n");
         /* Optimization: if there is room in the static buffer for 32 bytes
          * (more than the max chars a 64 bit integer can take as string) we
          * avoid decoding the object and go for the lower level approach. */
@@ -335,7 +335,6 @@ void addReply(client *c, robj *obj) {
             _addReplyObjectToList(c,obj);
         decrRefCount(obj);
     } else {
-        printf("addReply func else\n");
         serverPanic("Wrong obj->encoding in addReply()");
     }
 }
@@ -470,6 +469,7 @@ void addReplyHumanLongDouble(client *c, long double d) {
 /* Add a long long as integer reply or bulk len / multi bulk count.
  * Basically this is used to output <prefix><long long><crlf>. */
 void addReplyLongLongWithPrefix(client *c, long long ll, char prefix) {
+
     char buf[128];
     int len;
 
@@ -544,7 +544,7 @@ void addReplyBulk(client *c, robj *obj) {
 void addReplyBulkCBuffer(client *c, const void *p, size_t len) {
     addReplyLongLongWithPrefix(c,len,'$');
     addReplyString(c,p,len);
-    addReply(c,shared.crlf);
+    addReply(c,shared. crlf);
 }
 
 /* Add sds to reply (takes ownership of sds and frees it) */
@@ -676,8 +676,7 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                     "Accepting client connection: %s", server.neterr);
             return;
         }
-        serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
-        printf("acceptTcpHandler,fd:%d\n",cfd);
+        serverLog(LL_WARNING,"Accepted %s:%d id:%d", cip,cport,cfd);
         acceptCommonHandler(cfd,0,cip);
     }
 }
@@ -763,13 +762,13 @@ void unlinkClient(client *c) {
 }
 
 void freeClient(client *c) {
-    // listNode *ln;
+    listNode *ln;
 
-    // /* If it is our master that's beging disconnected we should make sure
-    //  * to cache the state to try a partial resynchronization later.
-    //  *
-    //  * Note that before doing this we make sure that the client is not in
-    //  * some unexpected state, by checking its flags. */
+    /* If it is our master that's beging disconnected we should make sure
+     * to cache the state to try a partial resynchronization later.
+     *
+     * Note that before doing this we make sure that the client is not in
+     * some unexpected state, by checking its flags. */
     // if (server.master && c->flags & CLIENT_MASTER) {
     //     serverLog(LL_WARNING,"Connection with master lost.");
     //     if (!(c->flags & (CLIENT_CLOSE_AFTER_REPLY|
@@ -782,41 +781,41 @@ void freeClient(client *c) {
     //     }
     // }
 
-    // /* Log link disconnection with slave */
+    /* Log link disconnection with slave */
     // if ((c->flags & CLIENT_SLAVE) && !(c->flags & CLIENT_MONITOR)) {
     //     serverLog(LL_WARNING,"Connection with slave %s lost.",
     //         replicationGetSlaveName(c));
     // }
 
-    // /* Free the query buffer */
-    // sdsfree(c->querybuf);
-    // c->querybuf = NULL;
+    /* Free the query buffer */
+    sdsfree(c->querybuf);
+    c->querybuf = NULL;
 
-    // /* Deallocate structures used to block on blocking ops. */
-    // if (c->flags & CLIENT_BLOCKED) unblockClient(c);
-    // dictRelease(c->bpop.keys);
+    /* Deallocate structures used to block on blocking ops. */
+    if (c->flags & CLIENT_BLOCKED) unblockClient(c);
+    dictRelease(c->bpop.keys);
 
-    // /* UNWATCH all the keys */
-    // unwatchAllKeys(c);
-    // listRelease(c->watched_keys);
+    /* UNWATCH all the keys */
+    unwatchAllKeys(c);
+    listRelease(c->watched_keys);
 
-    // /* Unsubscribe from all the pubsub channels */
+    /* Unsubscribe from all the pubsub channels */
     // pubsubUnsubscribeAllChannels(c,0);
     // pubsubUnsubscribeAllPatterns(c,0);
     // dictRelease(c->pubsub_channels);
     // listRelease(c->pubsub_patterns);
 
-    // /* Free data structures. */
-    // listRelease(c->reply);
-    // freeClientArgv(c);
+    /* Free data structures. */
+    listRelease(c->reply);
+    freeClientArgv(c);
 
-    // /* Unlink the client: this will close the socket, remove the I/O
-    //  * handlers, and remove references of the client from different
-    //  * places where active clients may be referenced. */
-    // unlinkClient(c);
+    /* Unlink the client: this will close the socket, remove the I/O
+     * handlers, and remove references of the client from different
+     * places where active clients may be referenced. */
+    unlinkClient(c);
 
-    // /* Master/slave cleanup Case 1:
-    //  * we lost the connection with a slave. */
+    /* Master/slave cleanup Case 1:
+     * we lost the connection with a slave. */
     // if (c->flags & CLIENT_SLAVE) {
     //     if (c->replstate == SLAVE_STATE_SEND_BULK) {
     //         if (c->repldbfd != -1) close(c->repldbfd);
@@ -834,25 +833,25 @@ void freeClient(client *c) {
     //     refreshGoodSlavesCount();
     // }
 
-    // /* Master/slave cleanup Case 2:
-    //  * we lost the connection with the master. */
+    /* Master/slave cleanup Case 2:
+     * we lost the connection with the master. */
     // if (c->flags & CLIENT_MASTER) replicationHandleMasterDisconnection();
 
-    // /* If this client was scheduled for async freeing we need to remove it
-    //  * from the queue. */
-    // if (c->flags & CLIENT_CLOSE_ASAP) {
-    //     ln = listSearchKey(server.clients_to_close,c);
-    //     serverAssert(ln != NULL);
-    //     listDelNode(server.clients_to_close,ln);
-    // }
+    /* If this client was scheduled for async freeing we need to remove it
+     * from the queue. */
+    if (c->flags & CLIENT_CLOSE_ASAP) {
+        ln = listSearchKey(server.clients_to_close,c);
+        serverAssert(ln != NULL);
+        listDelNode(server.clients_to_close,ln);
+    }
 
-    // /* Release other dynamically allocated client structure fields,
-    //  * and finally release the client structure itself. */
-    // if (c->name) decrRefCount(c->name);
-    // zfree(c->argv);
+    /* Release other dynamically allocated client structure fields,
+     * and finally release the client structure itself. */
+    if (c->name) decrRefCount(c->name);
+    zfree(c->argv);
     // freeClientMultiState(c);
-    // sdsfree(c->peerid);
-    // zfree(c);
+    sdsfree(c->peerid);
+    zfree(c);
 }
 
 /* Schedule a client to free it at a safe time in the serverCron() function.
@@ -883,7 +882,9 @@ int writeToClient(int fd, client *c, int handler_installed) {
     size_t objlen;
     size_t objmem;
     robj *o;
-    printf("writeToClient fd:%d\n",fd);
+    
+    serverLog(LL_WARNING,"writeToClient c->reply length:%zu", 
+            listLength(c->reply));
     while(clientHasPendingReplies(c)) {
         if (c->bufpos > 0) {
             nwritten = write(fd,c->buf+c->sentlen,c->bufpos-c->sentlen);
@@ -907,7 +908,6 @@ int writeToClient(int fd, client *c, int handler_installed) {
                 c->reply_bytes -= objmem;
                 continue;
             }
-
             nwritten = write(fd, ((char*)o->ptr)+c->sentlen,objlen-c->sentlen);
             if (nwritten <= 0) break;
             c->sentlen += nwritten;
@@ -982,7 +982,6 @@ int handleClientsWithPendingWrites(void) {
 
     listRewind(server.clients_pending_write,&li);
     while((ln = listNext(&li))) {
-        printf("handleClientsWithPendingWrites func processed:%d\n",processed);
         client *c = listNodeValue(ln);
         c->flags &= ~CLIENT_PENDING_WRITE;
         listDelNode(server.clients_pending_write,ln);
@@ -1097,6 +1096,7 @@ static void setProtocolError(client *c, int pos) {
 }
 
 int processMultibulkBuffer(client *c) {
+
     char *newline = NULL;
     int pos = 0, ok;
     long long ll;
@@ -1104,9 +1104,8 @@ int processMultibulkBuffer(client *c) {
     if (c->multibulklen == 0) {
         /* The client should have been reset */
         serverAssertWithInfo(c,NULL,c->argc == 0);
-
         /* Multi bulk length cannot be read without a \r\n */
-        newline = strchr(c->querybuf,'\r');
+        newline = strchr(c->querybuf,'\r'); 
         if (newline == NULL) {
             if (sdslen(c->querybuf) > PROTO_INLINE_MAX_SIZE) {
                 addReplyError(c,"Protocol error: too big mbulk count string");
@@ -1114,11 +1113,9 @@ int processMultibulkBuffer(client *c) {
             }
             return C_ERR;
         }
-
         /* Buffer should also contain \n */
         if (newline-(c->querybuf) > ((signed)sdslen(c->querybuf)-2))
             return C_ERR;
-
         /* We know for sure there is a whole line since newline != NULL,
          * so go ahead and find out the multi bulk length. */
         serverAssertWithInfo(c,NULL,c->querybuf[0] == '*');
@@ -1128,23 +1125,22 @@ int processMultibulkBuffer(client *c) {
             setProtocolError(c,pos);
             return C_ERR;
         }
-
+        
         pos = (newline-c->querybuf)+2;
         if (ll <= 0) {
             sdsrange(c->querybuf,pos,-1);
             return C_OK;
         }
-
         c->multibulklen = ll;
-
         /* Setup argv array on client structure */
         if (c->argv) zfree(c->argv);
         c->argv = zmalloc(sizeof(robj*)*c->multibulklen);
     }
-
+    serverLog(LL_WARNING,"processMultibulkBuffer c->multibulklen:%d", 
+            c->multibulklen);
     serverAssertWithInfo(c,NULL,c->multibulklen > 0);
     while(c->multibulklen) {
-        /* Read bulk length if unknown */
+        /* Read bulk length if unknown */ 
         if (c->bulklen == -1) {
             newline = strchr(c->querybuf+pos,'\r');
             if (newline == NULL) {
@@ -1156,11 +1152,9 @@ int processMultibulkBuffer(client *c) {
                 }
                 break;
             }
-
             /* Buffer should also contain \n */
             if (newline-(c->querybuf) > ((signed)sdslen(c->querybuf)-2))
                 break;
-
             if (c->querybuf[pos] != '$') {
                 addReplyErrorFormat(c,
                     "Protocol error: expected '$', got '%c'",
@@ -1175,11 +1169,10 @@ int processMultibulkBuffer(client *c) {
                 setProtocolError(c,pos);
                 return C_ERR;
             }
-
+            
             pos += newline-(c->querybuf+pos)+2;
             if (ll >= PROTO_MBULK_BIG_ARG) {
                 size_t qblen;
-
                 /* If we are going to read a large object from network
                  * try to make it likely that it will start at c->querybuf
                  * boundary so that we can optimize object creation
@@ -1200,6 +1193,7 @@ int processMultibulkBuffer(client *c) {
             /* Not enough data (+2 == trailing \r\n) */
             break;
         } else {
+                
             /* Optimization: if the buffer contains JUST our bulk element
              * instead of creating a new object by *copying* the sds we
              * just use the current sds string. */
@@ -1225,8 +1219,11 @@ int processMultibulkBuffer(client *c) {
     }
 
     /* Trim to pos */
+    // serverLog(LL_WARNING,"processMultibulkBuffer before sdsrange c->querybuf %zu:%zu", 
+            // sdslen(c->querybuf),sdsavail(c->querybuf));
     if (pos) sdsrange(c->querybuf,pos,-1);
-
+    // serverLog(LL_WARNING,"processMultibulkBuffer after sdsrange c->querybuf %zu:%zu", 
+    //         sdslen(c->querybuf),sdsavail(c->querybuf));
     /* We're done when c->multibulk == 0 */
     if (c->multibulklen == 0) return C_OK;
 
@@ -1235,9 +1232,10 @@ int processMultibulkBuffer(client *c) {
 }
 
 void processInputBuffer(client *c) {
-    // printf("processInputBuffer func\n");
     server.current_client = c;
     /* Keep processing while there is something in the input buffer */
+    serverLog(LL_WARNING,"processInputBuffer %zu:%zu,value:%s", 
+            sdslen(c->querybuf),sdsavail(c->querybuf),c->querybuf);
     while(sdslen(c->querybuf)) {
         /* Return if clients are paused. */
         if (!(c->flags & CLIENT_SLAVE) && clientsArePaused()) break;
@@ -1259,8 +1257,7 @@ void processInputBuffer(client *c) {
             } else {
                 c->reqtype = PROTO_REQ_INLINE;
             }
-        }
-        printf("processInputBuffer len:%zu\n",sdslen(c->querybuf));        
+        }     
         if (c->reqtype == PROTO_REQ_INLINE) {
             if (processInlineBuffer(c) != C_OK) break;
         } else if (c->reqtype == PROTO_REQ_MULTIBULK) {
@@ -1275,7 +1272,10 @@ void processInputBuffer(client *c) {
         } else {
             /* Only reset the client when the command was executed. */
             if (processCommand(c) == C_OK)
+            {
                 resetClient(c);
+            }
+                
             /* freeMemoryIfNeeded may flush slave output buffers. This may result
              * into a slave, that may be the active client, to be freed. */
             if (server.current_client == NULL) break;
@@ -1285,7 +1285,6 @@ void processInputBuffer(client *c) {
 }
 
 void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
-    printf("readQueryFromClient,fd:%d\n",fd);
     client *c = (client*) privdata;
     int nread, readlen;
     size_t qblen;
@@ -1303,13 +1302,14 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         && c->bulklen >= PROTO_MBULK_BIG_ARG)
     {
         int remaining = (unsigned)(c->bulklen+2)-sdslen(c->querybuf);
-
         if (remaining < readlen) readlen = remaining;
     }
 
     qblen = sdslen(c->querybuf);
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
     c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
+    serverLog(LL_WARNING,"readQueryFromClient qblen:%zu,readlen:%d,c->querybuf %zu:%zu", 
+            qblen,readlen,sdslen(c->querybuf),sdsavail(c->querybuf));
     nread = read(fd, c->querybuf+qblen, readlen);
     if (nread == -1) {
         if (errno == EAGAIN) {
@@ -1320,6 +1320,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
     } else if (nread == 0) {
+        // 连接断开
         serverLog(LL_VERBOSE, "Client closed connection");
         freeClient(c);
         return;
@@ -1328,9 +1329,8 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     c->lastinteraction = server.unixtime;
     if (c->flags & CLIENT_MASTER) c->reploff += nread;
     server.stat_net_input_bytes += nread;
-    // printf("len:%zu,buf:%s,time:%ld,c->reploff:%d,client_max_querybuf_len:%ld\n",
-        // sdslen(c->querybuf),c->querybuf,server.unixtime,c->reploff,server.client_max_querybuf_len);
     
+    // 单个客户端发送数据总量控制
     if (sdslen(c->querybuf) > server.client_max_querybuf_len) {
         sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
         bytes = sdscatrepr(bytes,c->querybuf,64);

@@ -4,6 +4,10 @@
 #include <signal.h>
 #include <ctype.h>
 
+void slotToKeyAdd(robj *key);
+void slotToKeyDel(robj *key);
+void slotToKeyFlush(void);
+
 int selectDb(client *c, int id) {
     if (id < 0 || id >= server.dbnum)
         return C_ERR;
@@ -71,6 +75,51 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
 
 void signalModifiedKey(redisDb *db, robj *key) {
     // touchWatchedKey(db,key);
+}
+
+/* The base case is to use the keys position as given in the command table
+ * (firstkey, lastkey, step). */
+int *getKeysUsingCommandTable(struct redisCommand *cmd,robj **argv, int argc, int *numkeys) {
+    int j, i = 0, last, *keys;
+    UNUSED(argv);
+
+    if (cmd->firstkey == 0) {
+        *numkeys = 0;
+        return NULL;
+    }
+    last = cmd->lastkey;
+    if (last < 0) last = argc+last;
+    keys = zmalloc(sizeof(int)*((last - cmd->firstkey)+1));
+    for (j = cmd->firstkey; j <= last; j += cmd->keystep) {
+        serverAssert(j < argc);
+        keys[i++] = j;
+    }
+    *numkeys = i;
+    return keys;
+}
+
+/* Return all the arguments that are keys in the command passed via argc / argv.
+ *
+ * The command returns the positions of all the key arguments inside the array,
+ * so the actual return value is an heap allocated array of integers. The
+ * length of the array is returned by reference into *numkeys.
+ *
+ * 'cmd' must be point to the corresponding entry into the redisCommand
+ * table, according to the command name in argv[0].
+ *
+ * This function uses the command table if a command-specific helper function
+ * is not required, otherwise it calls the command-specific function. */
+int *getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+    if (cmd->getkeys_proc) {
+        return cmd->getkeys_proc(cmd,argv,argc,numkeys);
+    } else {
+        return getKeysUsingCommandTable(cmd,argv,argc,numkeys);
+    }
+}
+
+/* Free the result of getKeysFromCommand. */
+void getKeysFreeResult(int *result) {
+    zfree(result);
 }
 
 void delCommand(client *c) {
@@ -149,11 +198,6 @@ void propagateExpire(redisDb *db, robj *key) {
     decrRefCount(argv[1]);
 }
 
-void slotToKeyDel(robj *key) {
-    // unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
-
-    // zslDelete(server.cluster->slots_to_keys,hashslot,key);
-}
 
 /* Delete a key, value, and associated expiration entry if any, from the DB */
 int dbDelete(redisDb *db, robj *key) {
@@ -216,4 +260,101 @@ robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply) {
     robj *o = lookupKeyRead(c->db, key);
     if (!o) addReply(c,reply);
     return o;
+}
+
+
+/* Lookup a key for write operations, and as a side effect, if needed, expires
+ * the key if its TTL is reached.
+ *
+ * Returns the linked value object if the key exists or NULL if the key
+ * does not exist in the specified DB. */
+robj *lookupKeyWrite(redisDb *db, robj *key) {
+    expireIfNeeded(db,key);
+    return lookupKey(db,key,LOOKUP_NONE);
+}
+
+/*-----------------------------------------------------------------------------
+ * Expires API
+ *----------------------------------------------------------------------------*/
+
+int removeExpire(redisDb *db, robj *key) {
+    /* An expire may only be removed if there is a corresponding entry in the
+     * main dict. Otherwise, the key will never be freed. */
+    serverAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
+    return dictDelete(db->expires,key->ptr) == DICT_OK;
+}
+
+void setExpire(redisDb *db, robj *key, long long when) {
+    dictEntry *kde, *de;
+
+    /* Reuse the sds from the main dict in the expire dict */
+    kde = dictFind(db->dict,key->ptr);
+    serverAssertWithInfo(NULL,key,kde != NULL);
+    de = dictReplaceRaw(db->expires,dictGetKey(kde));
+    dictSetSignedIntegerVal(de,when);
+}
+
+/* High level Set operation. This function can be used in order to set
+ * a key, whatever it was existing or not, to a new object.
+ *
+ * 1) The ref count of the value object is incremented.
+ * 2) clients WATCHing for the destination key notified.
+ * 3) The expire time of the key is reset (the key is made persistent). */
+void setKey(redisDb *db, robj *key, robj *val) {
+    if (lookupKeyWrite(db,key) == NULL) {
+        dbAdd(db,key,val);
+    } else {
+        dbOverwrite(db,key,val);
+    }
+    incrRefCount(val);
+    removeExpire(db,key);
+    signalModifiedKey(db,key);
+}
+
+
+/* Overwrite an existing key with a new value. Incrementing the reference
+ * count of the new value is up to the caller.
+ * This function does not modify the expire time of the existing key.
+ *
+ * The program is aborted if the key was not already present. */
+void dbOverwrite(redisDb *db, robj *key, robj *val) {
+    dictEntry *de = dictFind(db->dict,key->ptr);
+
+    serverAssertWithInfo(NULL,key,de != NULL);
+    dictReplace(db->dict, key->ptr, val);
+}
+
+/* Add the key to the DB. It's up to the caller to increment the reference
+ * counter of the value if needed.
+ *
+ * The program is aborted if the key already exists. */
+void dbAdd(redisDb *db, robj *key, robj *val) {
+    sds copy = sdsdup(key->ptr);
+    int retval = dictAdd(db->dict, copy, val);
+
+    serverAssertWithInfo(NULL,key,retval == DICT_OK);
+    if (val->type == OBJ_LIST) signalListAsReady(db, key);
+    if (server.cluster_enabled) slotToKeyAdd(key);
+ }
+
+
+ /* Slot to Key API. This is used by Redis Cluster in order to obtain in
+ * a fast way a key that belongs to a specified hash slot. This is useful
+ * while rehashing the cluster. */
+void slotToKeyAdd(robj *key) {
+    // unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
+
+    // zslInsert(server.cluster->slots_to_keys,hashslot,key);
+    // incrRefCount(key);
+}
+
+void slotToKeyDel(robj *key) {
+    // unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
+
+    // zslDelete(server.cluster->slots_to_keys,hashslot,key);
+}
+
+void slotToKeyFlush(void) {
+    // zslFree(server.cluster->slots_to_keys);
+    // server.cluster->slots_to_keys = zslCreate();
 }

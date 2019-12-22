@@ -146,6 +146,18 @@ uint32_t digits10(uint64_t v) {
     return 12 + digits10(v / 1000000000000UL);
 }
 
+/* Like digits10() but for signed values. */
+uint32_t sdigits10(int64_t v) {
+    if (v < 0) {
+        /* Abs value of LLONG_MIN requires special handling. */
+        uint64_t uv = (v != LLONG_MIN) ?
+                      (uint64_t)-v : ((uint64_t) LLONG_MAX)+1;
+        return digits10(uv)+1; /* +1 for the minus. */
+    } else {
+        return digits10(v);
+    }
+}
+
 /* Convert a string into a long long. Returns 1 if the string could be parsed
  * into a (non-overflowing) long long, 0 otherwise. The value will be set to
  * the parsed value when appropriate. */

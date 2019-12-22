@@ -3,7 +3,7 @@
 static void *createStringObject(const redisReadTask *task, char *str, size_t len);
 
 static void *createStringObject(const redisReadTask *task, char *str, size_t len) {
-    // redisReply *r, *parent;
+    redisReply *r, *parent;
     // char *buf;
 
     // r = createReplyObject(task->type);
@@ -31,5 +31,5 @@ static void *createStringObject(const redisReadTask *task, char *str, size_t len
     //     assert(parent->type == REDIS_REPLY_ARRAY);
     //     parent->element[task->idx] = r;
     // }
-    // return r;
+    return r;
 }

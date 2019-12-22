@@ -46,5 +46,5 @@ int pubsubPublishMessage(robj *channel, robj *message) {
     //     }
     //     decrRefCount(channel);
     // }
-    // return receivers;
+    return receivers;
 }
